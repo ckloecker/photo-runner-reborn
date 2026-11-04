@@ -1,0 +1,41 @@
+name: Game feedback
+description: Share a bug report, feature request, or general feedback.
+title: "[Feedback]: "
+labels: []
+body:
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - Bug report
+        - Feature request
+        - General feedback
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - Medium
+        - Low
+        - High
+        - Critical
+    validations:
+      required: true
+  - type: textarea
+    id: feedback
+    attributes:
+      label: Feedback
+      description: Describe the issue, idea, or feedback.
+      placeholder: What happened or what would you like to see?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Optional steps to reproduce the issue.
+    validations:
+      required: false

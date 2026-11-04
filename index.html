@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#17232c">
+  <meta name="game-source-branch" content="Not injected">
+  <meta name="game-source-commit" content="Not injected">
+  <title>Photo Runner</title>
+  <link rel="icon" type="image/svg+xml" href="./assets/favicon.svg">
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./src/app.js?v=45"></script>
+</head>
+<body>
+  <main class="shell">
+    <header class="masthead">
+      <a class="brand" href="./" aria-label="Photo Runner home">
+        <span class="brand-mark" aria-hidden="true">PR</span>
+        <span>PHOTO RUNNER</span>
+      </a>
+      <p class="tagline">Your photo. Your course. Beat the clock.</p>
+    </header>
+
+    <section id="setup-screen" class="screen" aria-labelledby="setup-title">
+      <div class="intro">
+        <p class="eyebrow">A tiny adventure made from your world</p>
+        <h1 id="setup-title">Run the edges of your photo.</h1>
+        <p>Pick a picture, choose a course, and race your co-runner through a living pixel-art level.</p>
+      </div>
+      <form id="setup-form" class="setup-card">
+        <fieldset>
+          <legend>Meet the runners</legend>
+          <div class="name-grid">
+            <label>Runner one
+              <input id="player-one" name="playerOne" autocomplete="given-name" maxlength="32" required>
+            </label>
+            <label>Runner two
+              <input id="player-two" name="playerTwo" autocomplete="off" maxlength="32" required>
+            </label>
+          </div>
+          <p class="hint">Use letters and spaces, up to 32 characters each.</p>
+        </fieldset>
+        <fieldset>
+          <legend>Choose a photo</legend>
+          <div class="photo-actions">
+            <label class="button button-secondary file-button" for="upload-photo" role="button" tabindex="0">Upload photo</label>
+            <input id="upload-photo" class="visually-hidden" type="file" accept="image/*">
+            <label class="button button-secondary file-button" for="camera-photo" role="button" tabindex="0">Take a photo</label>
+            <input id="camera-photo" class="visually-hidden" type="file" accept="image/*" capture="environment">
+          </div>
+          <p id="photo-status" class="hint" role="status">Photos stay on this device and are never uploaded.</p>
+        </fieldset>
+        <button id="suggest-button" class="button button-primary" type="submit" disabled>Suggest three levels</button>
+        <p id="setup-error" class="error" role="alert" hidden></p>
+      </form>
+      <aside class="instructions">
+        <h2>How to play</h2>
+        <ul>
+          <li><strong>Move:</strong> A/D or left/right arrows; touch players use the left joystick.</li>
+          <li><strong>Jump:</strong> Space for a fixed-height jump and one airborne double jump; the touch JUMP button does the same.</li>
+          <li><strong>Climb:</strong> W/up to grip the background, then use directions to climb; Space drops. Up does not jump.</li>
+          <li><strong>Drill:</strong> Hold Return or DRILL to cut a narrow tunnel in the aimed direction; untouched ground drills slowly.</li>
+          <li><strong>Combat:</strong> X or SHOOT fires in combat courses; jumping onto a patrol also defeats it.</li>
+          <li><strong>Course features:</strong> Collect every glowing checkpoint to unlock the checkered exit; avoid flying patrols, collect lightning speed boosts and mushrooms, and ride the optional moving platforms.</li>
+          <li><strong>Reset:</strong> Reset run restores the selected photo course without saving an abandoned attempt.</li>
+        </ul>
+      </aside>
+    </section>
+
+    <section id="preview-screen" class="screen" aria-labelledby="preview-title" hidden>
+      <div class="screen-heading">
+        <div>
+          <p class="eyebrow">Three routes, one photo</p>
+          <h1 id="preview-title">Choose your course</h1>
+        </div>
+        <button id="change-photo" class="button button-secondary" type="button">Choose another photo</button>
+      </div>
+      <div id="suggestions" class="suggestions"></div>
+      <p id="preview-error" class="error" role="alert" hidden></p>
+    </section>
+
+    <section id="game-screen" class="screen" aria-labelledby="game-title" hidden>
+      <div class="game-heading">
+        <div>
+          <p class="eyebrow" id="round-label">Round 1</p>
+          <h1 id="game-title">Ready, runner!</h1>
+        </div>
+        <div class="game-actions">
+          <span id="timer" class="timer" aria-label="Race time">00:00.00</span>
+          <button id="fullscreen-button" class="button button-secondary" type="button">Full screen</button>
+          <button id="reset-button" class="button button-secondary" type="button">Reset run</button>
+        </div>
+      </div>
+      <div id="game-frame" class="game-frame">
+        <canvas id="game-canvas" width="960" height="540" aria-label="Photo Runner gameplay"></canvas>
+        <div class="touch-controls" aria-label="Touch controls">
+          <div id="joystick" class="joystick" aria-label="Movement and drill direction">
+            <span class="joystick-handle"></span>
+          </div>
+          <div class="touch-actions">
+            <button type="button" class="touch-button" data-control="jump">JUMP</button>
+            <button type="button" class="touch-button" data-control="drill">DRILL</button>
+            <button type="button" class="touch-button" data-control="shoot">SHOOT</button>
+          </div>
+        </div>
+      </div>
+      <p id="game-status" class="game-status" role="status" aria-live="polite">Move or jump to start the timer.</p>
+    </section>
+
+    <section id="complete-screen" class="screen completion" aria-labelledby="complete-title" hidden>
+      <p class="eyebrow">Course complete</p>
+      <h1 id="complete-title">You made it!</h1>
+      <p id="completion-message" class="completion-message"></p>
+      <p id="completion-time" class="completion-time"></p>
+      <div class="completion-grid">
+        <section>
+          <h2>Leaderboard</h2>
+          <p class="hint">Scores are saved in cookies on this browser only.</p>
+          <p id="score-storage-status" class="hint" role="status" aria-live="polite"></p>
+          <ol id="leaderboard" class="leaderboard"></ol>
+        </section>
+        <section>
+          <h2>Who races next?</h2>
+          <p class="hint">Both runners keep this exact course.</p>
+          <div id="next-player-actions" class="next-player-actions"></div>
+          <button id="completion-reset" class="button button-secondary" type="button">Reset run</button>
+        </section>
+      </div>
+    </section>
+
+    <footer class="feedback" aria-label="Feedback">
+      <div>
+        <strong>Help make the game better</strong>
+        <p>Feedback opens GitHub in a new tab; visibility follows repository visibility.</p>
+        <p id="version-info" class="version-info"></p>
+      </div>
+      <label class="severity-label">Severity
+        <select id="feedback-severity">
+          <option>Low</option>
+          <option selected>Medium</option>
+          <option>High</option>
+          <option>Critical</option>
+        </select>
+      </label>
+      <div class="feedback-buttons">
+        <button class="button button-tertiary" type="button" data-feedback="Bug report">Bug report</button>
+        <button class="button button-tertiary" type="button" data-feedback="Feature request">Feature request</button>
+        <button class="button button-tertiary" type="button" data-feedback="General feedback">General feedback</button>
+      </div>
+    </footer>
+  </main>
+</body>
+</html>

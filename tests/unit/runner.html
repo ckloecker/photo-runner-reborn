@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Photo Runner unit tests</title>
+</head>
+<body>
+  <h1>Photo Runner unit tests</h1>
+  <pre id="results" role="status">Running tests...</pre>
+  <script type="module">
+    import {
+      createRandom,
+      generateSuggestions,
+      createRun,
+      pressJump,
+      stepRun,
+      resetRun,
+      isValidPlayerName,
+      getLeaderboardRows,
+      makeLevelKey,
+      getEngineConstants,
+      verifyCourse,
+      replayCourse
+    } from "../../src/game-core.js?v=47";
+
+    const output = document.querySelector("#results");
+    const failures = [];
+    let passed = 0;
+    const assert = (condition, message) => {
+      if (!condition) throw new Error(message);
+    };
+    const test = (name, callback) => {
+      try {
+        callback();
+        passed += 1;
+      } catch (error) {
+        failures.push(`${name}: ${error.message}`);
+      }
+    };
+    const photo = {
+      width: 32,
+      height: 24,
+      data: new Uint8ClampedArray(32 * 24 * 4)
+    };
+    for (let y = 0; y < photo.height; y += 1) {
+      for (let x = 0; x < photo.width; x += 1) {
+        const offset = (y * photo.width + x) * 4;
+        const shade = ((x * 19 + y * 31 + (x * y) % 97) % 180) + 35;
+        photo.data[offset] = shade;
+        photo.data[offset + 1] = (shade * 3) % 256;
+        photo.data[offset + 2] = (shade * 7) % 256;
+        photo.data[offset + 3] = 255;
+      }
+    }
+
+    test("player names accept letters and spaces up to 32 characters", () => {
+      assert(isValidPlayerName("Ada Lovelace"), "valid name rejected");
+      assert(isValidPlayerName("Élodie"), "Unicode letters rejected");
+      assert(!isValidPlayerName(""), "empty name accepted");
+      assert(!isValidPlayerName("Runner 7"), "digits accepted");
+      assert(!isValidPlayerName("A".repeat(33)), "overlong name accepted");
+    });
+
+    test("seeded random sequences repeat", () => {
+      const first = createRandom(12345);
+      const second = createRandom(12345);
+      assert(
+        Array.from({ length: 8 }, first).join(",") ===
+          Array.from({ length: 8 }, second).join(","),
+        "same seed produced different sequences"
+      );
+    });
+
+    test("photo suggestions are reproducible and distinct", () => {
+      const first = generateSuggestions(photo, 9876);
+      const second = generateSuggestions(photo, 9876);
+      assert(first.length === 3, "expected three suggestions");
+      assert(JSON.stringify(first) === JSON.stringify(second), "generation was not deterministic");
+      assert(new Set(first.map((option) => `${option.biome}:${option.layout}`)).size === 3,
+        "biome/layout pairs are not distinct");
+      for (const option of first) {
+        for (const [index, point] of option.route.points.entries()) {
+          for (const [otherIndex, other] of option.route.points.entries()) {
+            if (index === otherIndex || point.supportY < other.y - 9 ||
+                point.supportY >= other.y) continue;
+            const overlaps = point.supportX < other.x + 3 &&
+              point.supportX + point.supportWidth > other.x - 3;
+            assert(!overlaps, "a route support blocks another waypoint");
+          }
+        }
+        assert(option.playerStart && option.finish, "missing safe endpoints");
+        assert(option.route?.verified === true, "missing verified no-drill route");
+        assert(option.checkpoints.length >= 1 && option.checkpoints.length <= 2,
+          "checkpoint count outside requirement");
+        assert(option.platforms.length === 2, "expected two moving platforms");
+        assert(option.pickups.filter((pickup) => pickup.type === "speed").length >= 1,
+          "missing speed pickup");
+        assert(option.pickups.filter((pickup) => pickup.type === "mushroom").length >= 1,
+          "missing mushroom pickup");
+        for (const pickup of option.pickups) {
+          for (let y = Math.floor(pickup.y); y < Math.ceil(pickup.y + pickup.height); y += 1) {
+            for (let x = Math.floor(pickup.x); x < Math.ceil(pickup.x + pickup.width); x += 1) {
+              assert(!option.terrain[y * option.width + x], "pickup was placed inside solid terrain");
+            }
+          }
+          for (const enemy of option.enemies) {
+            const progress = (Math.sin(enemy.phase) + 1) / 2;
+            assert(Math.abs(enemy.x - (enemy.path[0].x +
+              (enemy.path[1].x - enemy.path[0].x) * progress)) < 0.001,
+            "patrol jumps away from its previewed position when the race starts");
+            assert(Math.abs(enemy.y - (enemy.path[0].y +
+              (enemy.path[1].y - enemy.path[0].y) * progress)) < 0.001,
+            "patrol vertical position jumps when the race starts");
+          }
+        }
+        assert(option.enemies.length >= 3, "missing patrol enemies");
+        assert(option.route.sectionCount >= 4 && option.route.sectionCount <= 6,
+          "route section count outside quality target");
+        assert(replayCourse(option), "reference route failed actual movement and enemy simulation");
+      }
+      const unsafe = structuredClone(first[0]);
+      const spawn = unsafe.playerStart;
+      unsafe.enemies[0].path = [
+        { x: spawn.x + 1, y: spawn.y + 1 },
+        { x: spawn.x + 1, y: spawn.y + 1 }
+      ];
+      assert(!replayCourse(unsafe), "route replay ignored a patrol collision");
+    });
+
+    test("route validation rejects blocked clearance", () => {
+      const option = generateSuggestions(photo, 9876)[0];
+      assert(verifyCourse(option), "generated course did not verify");
+      const blocked = structuredClone(option);
+      const point = blocked.route.points[0];
+      const x = Math.floor(point.x);
+      const y = Math.floor(point.y - 5);
+      blocked.terrain[y * blocked.width + x] = true;
+      assert(!verifyCourse(blocked), "blocked route clearance was accepted");
+    });
+
+    test("player size, fixed jump, and one double jump", () => {
+      const option = generateSuggestions(photo, 9876)[0];
+      const run = createRun(option, ["Ada", "Grace"]);
+      assert(run.player.width === 6 && run.player.height === 9, "wrong player footprint");
+      const initialY = run.player.y;
+      pressJump(run, 0);
+      assert(run.timerStarted, "jump did not start timer");
+      assert(run.player.vy < 0, "floor jump did not launch");
+      stepRun(run, {}, 0.1, 100);
+      const risingY = run.player.y;
+      assert(run.player.doubleJumpAvailable, "floor jump consumed the airborne double jump");
+      pressJump(run, 101);
+      assert(run.player.vy < 0, "double jump did not reset upward velocity");
+      assert(!run.player.doubleJumpAvailable, "double jump remained available");
+      const afterDoubleJump = run.player.vy;
+      pressJump(run, 102);
+      assert(run.player.vy === afterDoubleJump, "unavailable third jump changed vertical velocity");
+      assert(risingY <= initialY, "jump moved downward before the double jump");
+    });
+
+    test("up attaches to the background, and jump drops without launching", () => {
+      const option = generateSuggestions(photo, 9876)[0];
+      const run = createRun(option, ["Ada", "Grace"]);
+      const y = run.player.y;
+      stepRun(run, { y: -1 }, 0.1, 100);
+      assert(run.player.climbing, "up did not attach to the background");
+      assert(run.player.y < y, "climbing did not move upward");
+      const jumpVelocity = run.player.vy;
+      assert(pressJump(run, 101), "jump did not detach the climber");
+      assert(!run.player.climbing, "jump left the player attached");
+      assert(run.player.vy > jumpVelocity, "climb-drop launched upward");
+    });
+
+    test("surface jump retains its double jump and wall jump is cosmetic", () => {
+      const option = generateSuggestions(photo, 9876)[0];
+      const run = createRun(option, ["Ada", "Grace"]);
+      pressJump(run, 0);
+      assert(run.player.doubleJumpAvailable, "initial jump consumed double jump");
+      const edgeX = run.player.x < option.width / 2 ? 0 : option.width - run.player.width;
+      run.player.x = edgeX;
+      run.player.y = Math.max(3, run.player.y - 20);
+      run.player.grounded = false;
+      run.player.floorGrace = null;
+      run.player.wallGrace = null;
+      const jumped = pressJump(run, 10);
+      assert(jumped, "wall contact did not allow a jump");
+      assert(run.player.dustUntil === 310, "wall jump did not start a 300ms dust burst");
+    });
+
+    test("leaderboard ties keep prior attempts ahead", () => {
+      const rows = getLeaderboardRows([
+        { id: "saved", name: "Ada", time: 12 },
+        { id: "current", name: "Grace", time: 12 }
+      ], "current");
+      assert(rows.ranked[0].id === "saved", "new equal-time score displaced an existing entry");
+      assert(rows.current.rank === 2, "current equal-time attempt has the wrong rank");
+    });
+
+    test("walk speed and fixed jump height remain consistent", () => {
+      const base = generateSuggestions(photo, 9876)[0];
+      const level = {
+        ...base,
+        width: 128,
+        height: 100,
+        terrain: Array(128 * 100).fill(false),
+        nonDrillable: Array(128 * 100).fill(false),
+        playerStart: { x: 20, y: 50 },
+        finish: { x: 110, y: 20, width: 12, height: 18 },
+        checkpoints: [],
+        platforms: [],
+        pickups: [],
+        enemies: [],
+        scenery: [],
+        route: { verified: true, points: [], sectionCount: 0 },
+        combat: false
+      };
+      for (let x = 0; x < level.width; x += 1) level.terrain[59 * level.width + x] = true;
+      const run = createRun(level, ["Ada", "Grace"]);
+      assert(getEngineConstants().normalSpeed === 80, "walking speed changed");
+      pressJump(run, 0);
+      for (let frame = 1; frame <= 6; frame += 1) stepRun(run, {}, 0.1, frame * 100);
+      assert(Math.abs((50 - run.player.y) - 38.6) < 2, "jump did not reach its fixed height");
+    });
+
+    test("wall contact blocks penetration but never traps horizontal movement", () => {
+      const base = generateSuggestions(photo, 9876)[0];
+      const level = {
+        ...base,
+        width: 128,
+        height: 100,
+        terrain: Array(128 * 100).fill(false),
+        nonDrillable: Array(128 * 100).fill(false),
+        playerStart: { x: 30, y: 81 },
+        finish: { x: 110, y: 20, width: 12, height: 18 },
+        checkpoints: [],
+        platforms: [],
+        pickups: [],
+        enemies: [],
+        scenery: [],
+        route: { verified: true, points: [], sectionCount: 0 },
+        combat: false
+      };
+      for (let x = 0; x < level.width; x += 1) level.terrain[90 * level.width + x] = true;
+      for (let y = 0; y < 90; y += 1) level.terrain[y * level.width + 40] = true;
+      const run = createRun(level);
+      for (let frame = 1; frame <= 20; frame += 1) stepRun(run, { x: 1 }, 0.1, frame * 100);
+      assert(run.player.x <= 34.01, "player penetrated the wall");
+      const wallPosition = run.player.x;
+      for (let frame = 21; frame <= 24; frame += 1) stepRun(run, { x: -1 }, 0.1, frame * 100);
+      assert(run.player.x < wallPosition - 5, "wall contact trapped the player after reversing");
+    });
+
+    test("projectiles hit patrols crossed between simulation frames", () => {
+      const base = generateSuggestions(photo, 9876)[0];
+      const level = {
+        ...base,
+        width: 128,
+        height: 100,
+        terrain: Array(128 * 100).fill(false),
+        nonDrillable: Array(128 * 100).fill(false),
+        playerStart: { x: 20, y: 50 },
+        finish: { x: 110, y: 20, width: 12, height: 18 },
+        checkpoints: [],
+        platforms: [],
+        pickups: [],
+        enemies: [{
+          x: 30,
+          y: 53,
+          initialX: 30,
+          initialY: 53,
+          path: [{ x: 30, y: 53 }, { x: 30, y: 53 }],
+          phase: 0,
+          defeated: false
+        }],
+        scenery: [],
+        route: { verified: true, points: [], sectionCount: 0 },
+        combat: true
+      };
+      const run = createRun(level);
+      stepRun(run, { shoot: true }, 0.1, 100);
+      assert(run.enemies[0].defeated, "fast projectile skipped a patrol between frames");
+      assert(run.projectiles.length === 0, "projectile remained after hitting a patrol");
+    });
+
+    test("active drilling slows movement without cutting the supporting floor", () => {
+      const base = generateSuggestions(photo, 9876)[0];
+      const level = {
+        ...base,
+        width: 128,
+        height: 100,
+        terrain: Array(128 * 100).fill(false),
+        nonDrillable: Array(128 * 100).fill(false),
+        playerStart: { x: 20, y: 50 },
+        finish: { x: 110, y: 20, width: 12, height: 18 },
+        checkpoints: [],
+        platforms: [],
+        pickups: [],
+        enemies: [],
+        scenery: [],
+        route: { verified: true, points: [], sectionCount: 0 },
+        combat: false
+      };
+      for (let x = 0; x < level.width; x += 1) level.terrain[59 * level.width + x] = true;
+      const run = createRun(level, ["Ada", "Grace"]);
+      for (let y = 52; y <= 56; y += 1) {
+        for (let x = 26; x <= 29; x += 1) run.terrain[y * level.width + x] = true;
+      }
+      const startX = run.player.x;
+      stepRun(run, { x: 1, drill: true }, 0.1, 100);
+      assert(run.player.x - startX <= 1.1, "active excavation exceeded ten cells per second");
+      assert(run.terrain[59 * level.width + 20], "drilling removed the supporting floor");
+      assert(!run.terrain[54 * level.width + 27], "drill did not remove the tunnel");
+    });
+
+    test("reset restores the selected option and clears controls", () => {
+      const option = generateSuggestions(photo, 9876)[0];
+      const run = createRun(option, ["Ada", "Grace"]);
+      run.input.right = true;
+      run.timer = 12;
+      run.terrain[0] = !run.terrain[0];
+      resetRun(run);
+      assert(run.timer === 0 && !run.timerStarted, "timer was not reset");
+      assert(!run.input.right, "held input survived reset");
+      assert(run.terrain[0] === option.terrain[0], "terrain was not restored");
+      assert(run.player.x === option.playerStart.x, "spawn was not restored");
+      for (const [index, enemy] of run.enemies.entries()) {
+        assert(enemy.x === option.enemies[index].x && enemy.y === option.enemies[index].y,
+          "reset changed the previewed patrol position");
+      }
+    });
+
+    test("leaderboard highlights exact attempt and preserves negative times", () => {
+      const entries = Array.from({ length: 11 }, (_, index) => ({
+        id: `entry-${index}`,
+        name: `Player ${index}`,
+        time: index - 5
+      }));
+      const rows = getLeaderboardRows(entries, "entry-10");
+      assert(rows.ranked.length === 10, "persisted leaderboard exceeded ten entries");
+      assert(rows.current?.id === "entry-10", "exact current attempt was not identified");
+      assert(rows.current.rank === null, "unranked attempt received a rank");
+      assert(rows.ranked[0].time === -5, "negative time was not preserved");
+    });
+
+    test("level keys distinguish exact generated options", () => {
+      const options = generateSuggestions(photo, 9876);
+      assert(makeLevelKey("photo-hash", options[0]) !== makeLevelKey("photo-hash", options[1]),
+        "different options shared a leaderboard key");
+    });
+
+    output.textContent = failures.length
+      ? `${passed} passed, ${failures.length} failed\n${failures.join("\n")}`
+      : `${passed} passed, 0 failed`;
+    output.dataset.failed = String(failures.length);
+  </script>
+</body>
+</html>

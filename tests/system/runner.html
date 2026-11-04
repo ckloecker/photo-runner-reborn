@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Photo Runner system checks</title>
+</head>
+<body>
+  <h1>Photo Runner system checks</h1>
+  <pre id="results" role="status">Running checks...</pre>
+  <script type="module">
+    import { createRun, generateSuggestions, stepRun, resetRun } from "../../src/game-core.js?v=47";
+
+    const result = document.querySelector("#results");
+    const failures = [];
+    let passed = 0;
+    const verify = async (name, callback) => {
+      try {
+        await callback();
+        passed += 1;
+      } catch (error) {
+        failures.push(`${name}: ${error.message}`);
+      }
+    };
+    const check = (condition, message) => {
+      if (!condition) throw new Error(message);
+    };
+
+    await verify("root entry and local runtime assets", async () => {
+      const response = await fetch("../../index.html");
+      check(response.ok, "root entry page did not load");
+      const markup = await response.text();
+      for (const id of ["setup-screen", "preview-screen", "game-screen", "complete-screen", "game-canvas"]) {
+        check(markup.includes(`id="${id}"`), `missing page surface ${id}`);
+      }
+      check(markup.includes("./src/app.js"), "entry page does not load its relative runtime");
+      const css = await fetch("../../styles.css");
+      check(css.ok, "runtime stylesheet did not load");
+    });
+
+    await verify("unusable image is rejected clearly", () => {
+      const flat = { width: 16, height: 16, data: new Uint8ClampedArray(16 * 16 * 4) };
+      for (let index = 0; index < flat.data.length; index += 4) flat.data[index + 3] = 255;
+      let rejected = false;
+      try {
+        generateSuggestions(flat, 1);
+      } catch (error) {
+        rejected = error.message.includes("No usable visible edge");
+      }
+      check(rejected, "featureless image was not rejected with guidance");
+    });
+
+    await verify("approved photo fixtures complete seeded route play-throughs", async () => {
+      for (const fixture of ["route-photo.svg", "platform-photo.svg", "mixed-orientation-photo.svg"]) {
+        const image = new Image();
+        image.src = `../fixtures/${fixture}`;
+        await image.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        context.drawImage(image, 0, 0);
+        const pixels = context.getImageData(0, 0, image.width, image.height);
+        for (const seed of [77, 12345, 20261104]) {
+          const options = generateSuggestions(pixels, seed);
+          check(options.length === 3 && options.every((option) => option.route.verified),
+            `${fixture} seed ${seed} did not produce three completed route replays`);
+          for (const [optionIndex, option] of options.entries()) {
+            const solidAt = (x, y) => x >= 0 && x < option.width && y >= 0 &&
+              y < option.height && option.terrain[y * option.width + x];
+            for (let y = 0; y < option.height; y += 1) {
+              for (let x = 0; x < option.width; x += 1) {
+                const offset = y * option.width + x;
+                if (!option.nonDrillable[offset]) continue;
+                check(option.terrain[offset],
+                  `${fixture} seed ${seed} marks empty cells non-drillable`);
+                check(!option.route.points.some((point) =>
+                  Math.abs(x + 0.5 - point.x) < 10 &&
+                  Math.abs(y + 0.5 - point.y + 4.5) < 16
+                ), `${fixture} seed ${seed} protects the required route`);
+                check(Math.hypot(x + 0.5 - option.finish.x, y + 0.5 - option.finish.y) >= 14,
+                  `${fixture} seed ${seed} protects the finish gate`);
+              }
+            }
+            for (const pickup of option.pickups) {
+              for (let y = Math.floor(pickup.y); y < Math.ceil(pickup.y + pickup.height); y += 1) {
+                for (let x = Math.floor(pickup.x); x < Math.ceil(pickup.x + pickup.width); x += 1) {
+                  check(!solidAt(x, y), `${fixture} seed ${seed} option ${optionIndex} blocks a pickup`);
+                }
+              }
+            }
+            for (const enemy of option.enemies) {
+              const initialProgress = (Math.sin(enemy.phase) + 1) / 2;
+              check(Math.abs(enemy.x - (enemy.path[0].x +
+                (enemy.path[1].x - enemy.path[0].x) * initialProgress)) < 0.001 &&
+                Math.abs(enemy.y - (enemy.path[0].y +
+                  (enemy.path[1].y - enemy.path[0].y) * initialProgress)) < 0.001,
+              `${fixture} seed ${seed} patrol teleports when activated`);
+              for (let sample = 0; sample <= 100; sample += 1) {
+                const progress = sample / 100;
+                const x = enemy.path[0].x + (enemy.path[1].x - enemy.path[0].x) * progress;
+                const y = enemy.path[0].y + (enemy.path[1].y - enemy.path[0].y) * progress;
+                check(x >= 8 && x <= option.width - 14 && y >= 8 && y <= option.height - 14,
+                  `${fixture} seed ${seed} patrol leaves safe bounds`);
+                for (let cellY = Math.floor(y - 2); cellY <= y + 2; cellY += 1) {
+                  for (let cellX = Math.floor(x - 2); cellX <= x + 2; cellX += 1) {
+                    check(!solidAt(cellX, cellY),
+                      `${fixture} seed ${seed} patrol intersects terrain`);
+                  }
+                }
+              }
+            }
+            for (const platform of option.platforms) {
+              check(platform.x >= platform.minX && platform.x <= platform.maxX &&
+                platform.minX <= platform.maxX,
+              `${fixture} seed ${seed} moving platform has invalid travel bounds`);
+              for (let y = Math.floor(platform.y); y < platform.y + platform.height; y += 1) {
+                for (let x = Math.floor(platform.x); x < platform.x + platform.width; x += 1) {
+                  check(!solidAt(x, y), `${fixture} seed ${seed} moving platform intersects terrain`);
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+
+    await verify("movement starts the timer and reset restores a fresh run", async () => {
+      const photo = { width: 32, height: 24, data: new Uint8ClampedArray(32 * 24 * 4) };
+      for (let y = 0; y < photo.height; y += 1) {
+        for (let x = 0; x < photo.width; x += 1) {
+          const offset = (y * photo.width + x) * 4;
+          const shade = ((x * 19 + y * 31 + (x * y) % 97) % 180) + 35;
+          photo.data[offset] = shade;
+          photo.data[offset + 1] = (shade * 3) % 256;
+          photo.data[offset + 2] = (shade * 7) % 256;
+          photo.data[offset + 3] = 255;
+        }
+      }
+      const option = generateSuggestions(photo, 77)[0];
+      const run = createRun(option, ["Ada", "Grace"]);
+      stepRun(run, {}, 0.1, 100);
+      check(!run.timerStarted, "idle time started the race");
+      stepRun(run, { x: 1 }, 0.1, 200);
+      check(run.timerStarted, "player movement did not start the race timer");
+      run.terrain[0] = !run.terrain[0];
+      run.input.right = true;
+      run.timer = 12;
+      resetRun(run);
+      check(run.timer === 0 && !run.timerStarted, "reset did not clear the timer");
+      check(run.terrain[0] === option.terrain[0], "reset did not restore terrain");
+      check(!run.input.right, "reset did not clear held controls");
+    });
+
+    result.textContent = failures.length
+      ? `${passed} passed, ${failures.length} failed\n${failures.join("\n")}`
+      : `${passed} passed, 0 failed`;
+    result.dataset.failed = String(failures.length);
+  </script>
+</body>
+</html>

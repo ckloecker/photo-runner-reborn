@@ -153,7 +153,7 @@ Eight-neighbor grouping preserves diagonal contours such as shoulders instead of
 Generation reserves a contiguous photo-edge-aligned main corridor before final filling and scenery.
 **55–70% open space**, **4–6 traversal sections**, and a **20–40-second reference route** are quality targets, not reasons to reject your photo.
 Every offered option still has an executable no-drill route with safe in-bounds endpoints and no walking-only finish.
-The recorded route mixes supported walking and background climbing and is replayed against the final terrain and enemy simulation.
+The verifier searches clear movement paths between route waypoints and simulates them through the final terrain, platforms, checkpoints, and patrols without drilling.
 There is no waiting added to reach the duration target.
 Free climbing, jumps and double jumps, and optional drilling still allow skilled shortcuts; the reference duration is not a minimum finishing time.
 Deep optional filling is removed without inventing filler, and substantial photo features are preferred over tiny fragments.

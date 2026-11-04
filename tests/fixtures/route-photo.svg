@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="405" viewBox="0 0 720 405">
+  <defs>
+    <linearGradient id="sky" x2="0" y2="1">
+      <stop stop-color="#b9dbe0"/>
+      <stop offset="1" stop-color="#e8d7a9"/>
+    </linearGradient>
+    <linearGradient id="hill" x2="0" y2="1">
+      <stop stop-color="#6e9375"/>
+      <stop offset="1" stop-color="#314d42"/>
+    </linearGradient>
+  </defs>
+  <rect width="720" height="405" fill="url(#sky)"/>
+  <circle cx="552" cy="88" r="44" fill="#ffe2a1"/>
+  <path d="M0 248 116 156l72 66 105-121 120 148 92-92 115 102 100-56v202H0z" fill="#8cae9a"/>
+  <path d="M0 302 125 218l84 82 110-133 104 126 86-73 98 99 113-74v160H0z" fill="url(#hill)"/>
+  <path d="M0 351h168l30-26h98l24 26h100l24-24h83l25 24h168v54H0z" fill="#533f31"/>
+  <path d="M44 332h83M205 322h76M360 339h78M506 326h97M618 342h54" stroke="#f0d17b" stroke-width="9"/>
+  <path d="M121 248v53m8-53v53m-8-35h8m-8 17h8M566 236v76m11-76v76m-11-50h11m-11 20h11" stroke="#4a392d" stroke-width="8"/>
+  <path d="M37 225q18-40 38 0m-27-1q17-45 35 0m472 18q20-48 40 0m-26 0q20-53 40 0" fill="#34724d" stroke="#285d43" stroke-width="7"/>
+  <path d="M0 370h720" stroke="#302a25" stroke-width="8"/>
+</svg>
